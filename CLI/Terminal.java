@@ -1,8 +1,5 @@
 import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -61,6 +58,104 @@ public class Terminal {
         }
     }
 
+    //function to make a directory
+    public void mkdir(String[] args) {
+        if(args.length <1){
+            System.out.println("Please provide 1 argument");
+            return;
+        }
+        else {
+            for (String arg : args) {
+                Path newDirectory = currentDirectory.resolve(arg);
+                try {
+                    Files.createDirectory(newDirectory);
+                } catch (IOException e) {
+                    System.out.println("Error creating directory: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    //function to make a file
+    public void touch(String[] args) {
+        if(args.length <1){
+            System.out.println("Please provide 1 argument");
+            return;
+        }
+        else {
+            for (String arg : args) {
+                Path newFile = currentDirectory.resolve(arg);
+                try {
+                    Files.createFile(newFile);
+                } catch (IOException e) {
+                    System.out.println("Error creating file: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    //function to copy a file
+    public void cp(String[] args) {
+        if(args.length != 2){
+            System.out.println("Please provide 2 arguments");
+            return;
+        }
+        Path source = currentDirectory.resolve(args[0]);
+        Path destination = currentDirectory.resolve(args[1]);
+        try {
+            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            System.out.println("Error copying file: " + e.getMessage());
+        }
+    }
+    //check if folder is empty
+    public boolean isEmpty(Path path) throws IOException {
+        DirectoryStream<Path> directoryStream = Files.newDirectoryStream(path);
+        return !directoryStream.iterator().hasNext();
+
+    }
+
+    //get all empty directories in the current directory
+    public List<Path> getEmptyDirectories() throws IOException {
+        List<Path> emptyDirectories = new ArrayList<>();
+        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(currentDirectory)) {
+            for (Path entry : directoryStream) {
+                if (Files.isDirectory(entry) && isEmpty(entry)) {
+                    emptyDirectories.add(entry);
+                }
+            }
+        }
+        return emptyDirectories;
+    }
+
+    //function to remove a directory
+    public void rmdir(String[] args){
+        if(args.length < 1){
+            System.out.println("Please provide 1 argument");
+            return;
+        } else if (args[0].equals("*")) {
+            try {
+                List<Path> emptyDirectories = getEmptyDirectories();
+                for (Path emptyDirectory : emptyDirectories) {
+                    Files.delete(emptyDirectory);
+                }
+            } catch (IOException e) {
+                System.out.println("Error deleting directory: " + e.getMessage());
+            }
+        }
+        else {
+            for(String arg : args){
+                Path directory = currentDirectory.resolve(arg);
+                try {
+                    Files.delete(directory);
+                } catch (IOException e) {
+                    System.out.println("Error deleting directory: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+
     //  A method that deals with the command entered by user and calls appropriate method for the command to be executed
     public void chooseCommandAction() {
         String commandName = parser.getCommandName();
@@ -84,6 +179,17 @@ public class Terminal {
             case "ls -r":
                 ls(true);
                 break;
+            case "mkdir":
+                mkdir(args);
+                break;
+            case "touch":
+                touch(args);
+                break;
+            case "cp":
+                cp(args);
+                break;
+            case "rmdir":
+                rmdir(args);
             case "exit":
                 System.out.println("Exiting the program.");
                 System.exit(0);
