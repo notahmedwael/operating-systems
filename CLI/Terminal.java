@@ -1,10 +1,44 @@
+import java.io.FileReader;
+import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Scanner;
+import java.util.stream.Stream;
+class Parser {
+    private String commandName; //  Command name to be executed
+    private String[] args;  //  Args that help the command if needed
 
+    //  A method that parses the input from user and splits it into a command and args
+    public boolean parse(String input) {
+        String[] parts = input.split("\\s+", 2); // Split on whitespaces, tabs, etc..
+
+        if (parts.length >= 1) {
+            commandName = parts[0]; //  Assign first part of input to command name
+            if (parts.length > 1) {
+                args = parts[1].split("\\s+");  //  Split the arguments into an array of strings
+            } else {
+                args = new String[0];   //  Empty string array for args
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    //  A public method that returns the command name
+    public String getCommandName() {
+        return commandName;
+    }
+
+    //  A public method that returns the args to help execute the command
+    public String[] getArgs() {
+        return args;
+    }
+}
 public class Terminal {
     private final Parser parser;
     Path currentDirectory = Paths.get(""); //   Initializing path
@@ -62,7 +96,6 @@ public class Terminal {
     public void mkdir(String[] args) {
         if(args.length <1){
             System.out.println("Please provide 1 argument");
-            return;
         }
         else {
             for (String arg : args) {
@@ -80,7 +113,6 @@ public class Terminal {
     public void touch(String[] args) {
         if(args.length <1){
             System.out.println("Please provide 1 argument");
-            return;
         }
         else {
             for (String arg : args) {
@@ -110,9 +142,9 @@ public class Terminal {
     }
     //check if folder is empty
     public boolean isEmpty(Path path) throws IOException {
-        DirectoryStream<Path> directoryStream = Files.newDirectoryStream(path);
-        return !directoryStream.iterator().hasNext();
-
+        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(path)) {
+            return !directoryStream.iterator().hasNext();
+        }
     }
 
     //get all empty directories in the current directory
@@ -132,7 +164,6 @@ public class Terminal {
     public void rmdir(String[] args){
         if(args.length < 1){
             System.out.println("Please provide 1 argument");
-            return;
         } else if (args[0].equals("*")) {
             try {
                 List<Path> emptyDirectories = getEmptyDirectories();
@@ -155,6 +186,129 @@ public class Terminal {
         }
     }
 
+    //  A method to delete a file
+    public static void rm(String file) {
+        File f = new File(file);
+        if (f.exists()) {
+            if (f.delete()) {
+                System.out.println("File deleted successfully.");
+            } else {
+                System.out.println("Error: Failed to delete the file.");
+            }
+        } else {
+            System.out.println("Error: The specified file does not exist.");
+        }
+    }
+
+    //  A method that prints the content of file
+    public static void cat(String file) {
+        try {
+            FileReader fileReader = new FileReader(file);
+            BufferedReader bufferedReader = new BufferedReader(fileReader);
+            String line;
+            while ((line = bufferedReader.readLine()) != null) {
+                System.out.println(line);
+            }
+            bufferedReader.close();
+        } catch (IOException e) {
+            System.out.println("Error: Failed to read the file.");
+            e.printStackTrace();
+        }
+    }
+
+    //  A method that prints the content of two files after concatenating them
+    public static void cat(String file1, String file2) {
+        try {
+            StringBuilder concatenatedFile = new StringBuilder();
+
+            BufferedReader reader1 = new BufferedReader(new FileReader(file1));
+            String line;
+            while ((line = reader1.readLine()) != null) {
+                concatenatedFile.append(line).append('\n');
+            }
+            reader1.close();
+
+            BufferedReader reader2 = new BufferedReader(new FileReader(file2));
+            while ((line = reader2.readLine()) != null) {
+                concatenatedFile.append(line).append('\n');
+            }
+            reader2.close();
+
+            System.out.println(concatenatedFile);
+        } catch (IOException e) {
+            System.out.println("Error: Failed to read the file.");
+            e.printStackTrace();
+        }
+    }
+
+    //  A method that counts lines, words, characters in a file
+    public void wc(String[] args) {
+        if (args.length != 1) {
+            System.out.println("Usage: wc <file>");
+            return;
+        }
+
+        Path filePath = currentDirectory.resolve(args[0]);
+
+        if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
+            long lines = 0;
+            long words = 0;
+            long characters = 0;
+
+            try (Stream<String> linesStream = Files.lines(filePath)) {
+                lines = linesStream.count();
+            } catch (IOException e) {
+                System.out.println("Error counting lines: " + e.getMessage());
+            }
+
+            try (Stream<String> fileContentStream = Files.lines(filePath)) {
+                words = fileContentStream
+                        .flatMap(line -> Stream.of(line.split("\\s+")))
+                        .filter(word -> !word.isEmpty())
+                        .count();
+            } catch (IOException e) {
+                System.out.println("Error counting words: " + e.getMessage());
+            }
+
+            try (Stream<String> fileContentStream = Files.lines(filePath)) {
+                characters = fileContentStream
+                        .flatMapToInt(CharSequence::chars)
+                        .count();
+            } catch (IOException e) {
+                System.out.println("Error counting characters: " + e.getMessage());
+            }
+
+            System.out.println(lines + " " + words + " " + characters + " " + filePath.getFileName());
+        } else {
+            System.out.println("File does not exist.");
+        }
+    }
+
+    //  A method that copied a directory into another directory
+    public void cpr(String[] args) {
+        if (args.length != 2) {
+            System.out.println("Usage: cp -r <source_directory> <destination_directory>");
+            return;
+        }
+
+        Path sourceDirectory = currentDirectory.resolve(args[0]);
+        Path destinationDirectory = currentDirectory.resolve(args[1]);
+
+        if (!Files.isDirectory(sourceDirectory) || !Files.isDirectory(destinationDirectory)) {
+            System.out.println("Both source and destination must be directories.");
+            return;
+        }
+
+        try (DirectoryStream<Path> sourceStream = Files.newDirectoryStream(sourceDirectory)) {
+            for (Path sourceFile : sourceStream) {
+                Path destinationFile = destinationDirectory.resolve(sourceFile.getFileName());
+                Files.copy(sourceFile, destinationFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            System.out.println("Files copied successfully.");
+        } catch (IOException e) {
+            System.out.println("Error copying files: " + e.getMessage());
+        }
+    }
 
     //  A method that deals with the command entered by user and calls appropriate method for the command to be executed
     public void chooseCommandAction() {
@@ -190,6 +344,28 @@ public class Terminal {
                 break;
             case "rmdir":
                 rmdir(args);
+            case "rm":
+                if (args.length == 1) {
+                    rm(args[0]); // Call the rm method with the file to be deleted
+                } else {
+                    System.out.println("Usage: rm <file>");
+                }
+                break;
+            case "cat":
+                if (args.length == 1) {
+                    cat(args[0]); // Call the cat method to print the content of a single file
+                } else if (args.length == 2) {
+                    cat(args[0], args[1]); // Call the cat method to concatenate and print two files
+                } else {
+                    System.out.println("Usage: cat <file1> [file2]");
+                }
+                break;
+            case "cp -r":
+                cpr(args);
+                break;
+            case "wc":
+                wc(args);
+                break;
             case "exit":
                 System.out.println("Exiting the program.");
                 System.exit(0);
@@ -213,6 +389,6 @@ public class Terminal {
             }else {
                 System.out.println("Invalid input, please enter a valid command");  //  Tell user to enter a valid command
             }
-            }
         }
     }
+}
