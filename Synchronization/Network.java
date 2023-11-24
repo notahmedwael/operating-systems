@@ -1,172 +1,186 @@
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.util.LinkedList;
-import java.util.Queue;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Scanner;
 
-// Utility class for writing log messages to a file
-class FileUtils {
-    // Method to write a formatted log message to the specified file
-    public static void writeToLogFile(String message, Object... args) {
-        try (PrintWriter writer = new PrintWriter(new FileWriter("output.txt", true))) {
-            writer.printf(message + "%n", args);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-}
-
-// Router class manages the connections and waiting clients
-class Router {
-    private final Semaphore semaphore;
-    private final Queue<Device> waitingClients = new LinkedList<>();
-
-    // Constructor initializes the router with a maximum number of connections
-    Router(int maxConnections) {
-        semaphore = new Semaphore(maxConnections);
-    }
-
-    // Method for a device to connect to the router
-    public int connect(Device device) {
-        int connectionNum = semaphore.acquire();
-        if (connectionNum != 0) {
-            // Log the connection login
-            FileUtils.writeToLogFile("Connection %d: %s(%s) login", connectionNum, device.name, device.type);
-        } else {
-            // Log that a device has arrived and is waiting
-            FileUtils.writeToLogFile("(%s)(%s) arrived", device.name, device.type);
-            waitingClients.add(device);
-            FileUtils.writeToLogFile("(%s)(%s) arrived and waiting", device.name, device.type);
-        }
-        return connectionNum;
-    }
-
-    // Method for releasing a connection when a device logs out
-    public void release() {
-        semaphore.release();
-        notifyNextWaitingClient();
-    }
-
-    // Private method to notify the next waiting client
-    private synchronized void notifyNextWaitingClient() {
-        Device waitingClient = waitingClients.poll();
-        if (waitingClient != null) {
-            waitingClient.start();
-        }
-    }
-
-    // Public method to get the next waiting client
-    public synchronized Device getNextWaitingClient() {
-        return waitingClients.poll();
-    }
-}
-
-// Semaphore class manages the number of available connections
+// Semaphore class for handling synchronization
 class Semaphore {
-    private final int maxConnections;
-    private int n;
+    private int value;             // Semaphore value
+    private final FileWriter fileWriter;  // FileWriter to log semaphore actions
 
-    // Constructor initializes the semaphore with a maximum number of connections
-    Semaphore(int maxConnections) {
-        this.maxConnections = maxConnections;
-        n = 0;
+    // Constructor for Semaphore
+    public Semaphore(int value, FileWriter fileWriter) {
+        this.value = value;
+        this.fileWriter = fileWriter;
     }
 
-    // Method for a device to acquire a connection
-    public synchronized int acquire() {
-        while (n >= maxConnections) {
+    // Method for a thread to wait on the semaphore
+    public synchronized void wait(String device) throws IOException {
+        value--;
+        if (value < 0) {
             try {
-                wait();
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                // Log the arrival of a device and that it's waiting
+                fileWriter.write("- " + device + " arrived and waiting\n");
+                wait();  // Wait until signaled by another thread
+            } catch (InterruptedException ex) {
+                System.err.println("Error: " + ex.getMessage());
+            }
+        } else {
+            // Log the arrival of a device
+            fileWriter.write("- " + device + " arrived\n");
+            notify();  // Notify waiting threads to start working
+        }
+    }
+
+    // Method to signal the semaphore
+    public synchronized void signal() {
+        value++;
+        if (value <= 0) {
+            notify();  // Notify waiting threads to start working
+        }
+    }
+}
+
+// Router class to manage connections
+class Router {
+    private final Semaphore semaphore;        // Semaphore to control access to connections
+    private int connectionNumber = 0;         // New connection number
+    private final String[] occupiedDevices;   // To store the currently occupied devices for each connection
+    private final List<String> logs;           // To store logs of connections
+
+    // Constructor for Router
+    public Router(int maxConnections, Semaphore semaphore, List<String> logs) {
+        this.semaphore = semaphore;
+        this.occupiedDevices = new String[maxConnections];
+        this.logs = logs;
+    }
+
+    // Method for a device to occupy a connection
+    public void occupyConnection(String device) throws InterruptedException, IOException {
+        semaphore.wait(device);
+
+        // Find the first available connection
+        for (int i = 0; i < occupiedDevices.length; i++) {
+            if (occupiedDevices[i] == null) {
+                occupiedDevices[i] = device;
+                connectionNumber++;  // Increment connection number for each new connection
+                logs.add("- Connection " + connectionNumber + ": " + device + " Occupied");
+                logs.add("- Connection " + connectionNumber + ": " + device + " login");
+                return;
             }
         }
-        n++;
-        return n;
     }
 
     // Method for a device to release a connection
-    public synchronized void release() {
-        n--;
-        notify();
-    }
-}
-
-// Device class represents a client device
-class Device extends Thread {
-    String name;
-    String type;
-    Router router;
-    int connectionNum;
-
-    // Constructor initializes a device with a name, type, and router
-    public Device(String name, String type, Router router) {
-        this.name = name;
-        this.type = type;
-        this.router = router;
-    }
-
-    // Run method executed when a device is started
-    @Override
-    public void run() {
-        int connectionNumber = router.connect(this);
-        if (connectionNumber != 0) {
-            // Set the connectionNum to the actual connection number
-            connectionNum = connectionNumber;
-
-            performOnlineActivity();
-            router.release();
-            // Log the connection logout
-            FileUtils.writeToLogFile("Connection %d: %s(%s) Logged out", connectionNumber, name, type);
-
-            // Check if there are waiting clients
-            Device waitingClient = router.getNextWaitingClient();
-            if (waitingClient != null) {
-                waitingClient.start();
+    public void releaseConnection(String device) {
+        for (int i = 0; i < occupiedDevices.length; i++) {
+            if (device.equals(occupiedDevices[i])) {
+                occupiedDevices[i] = null;
+                semaphore.signal();
+                return;
             }
         }
     }
 
-    // Simulate online activity with a random sleep time
-    private void performOnlineActivity() {
-        int randomSleep = 5000 + (int) (Math.random() * 10000); // Random sleep between 5 and 15 seconds
-        FileUtils.writeToLogFile("Connection %d: %s(%s) performs online activity", connectionNum, name, type);
+    // Method to get the connection number for a device
+    public int getConnectionNumber(String device) {
+        for (int i = 0; i < occupiedDevices.length; i++) {
+            if (device.equals(occupiedDevices[i])) {
+                return i + 1;  // Connection number is 1-based
+            }
+        }
+        return -1;  // The Device is not connected
+    }
+}
+
+// Device class representing a connected device
+class Device extends Thread {
+    private final String name;
+    private final String type;
+    private final Router router;
+    private final List<String> logs;
+
+    // Constructor for Device
+    public Device(String name, String type, Router router, List<String> logs) {
+        this.name = name;
+        this.type = type;
+        this.router = router;
+        this.logs = logs;
+        start();  // Start the thread immediately upon creation
+    }
+
+    // Run method for the thread
+    @Override
+    public void run() {
         try {
-            Thread.sleep(randomSleep);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            router.occupyConnection("(" + name + ")(" + type + ")");
+
+            // Simulate online activity
+            Thread.sleep((long) (Math.random() * 10000) + 5000);  // Vary between 5 and 15 seconds
+            logs.add("- Connection " + router.getConnectionNumber("(" + name + ")(" + type + ")") + ": " + name + " performs online activity");
+
+            // Simulate logout
+            Thread.sleep((long) (Math.random() * 10000) + 5000);  // Vary between 5 and 15 seconds
+            logs.add("- Connection " + router.getConnectionNumber("(" + name + ")(" + type + ")") + ": " + name + " Logged out");
+
+        } catch (InterruptedException | IOException e) {
+            System.err.println("Error: " + e.getMessage());
+            Thread.currentThread().interrupt();  // Restore interrupted state
+        } finally {
+            router.releaseConnection("(" + name + ")(" + type + ")");
         }
     }
 }
 
-// The main class representing the network simulation
+// Main class for the network simulation
 public class Network {
-    // Main method to start the network simulation
     public static void main(String[] args) {
-        int connections, clients;
-        Queue<Device> devices = new LinkedList<>();
         Scanner scanner = new Scanner(System.in);
 
         System.out.println("What is the number of WI-FI Connections?");
-        connections = scanner.nextInt();
+        int maxConnections = scanner.nextInt();
+        scanner.nextLine();  // Consume the newline character
+
         System.out.println("What is the number of devices Clients want to connect?");
-        clients = scanner.nextInt();
-        Router router = new Router(connections);
+        int totalDevices = scanner.nextInt();
+        scanner.nextLine();  // Consume the newline character
 
-        for (int i = 0; i < clients; i++) {
-            System.out.println("Enter the name and type of device (e.g., C1 mobile):");
-            String name = scanner.next();
-            String type = scanner.next();
-            Device device = new Device(name, type, router);
-            devices.add(device);
+        FileWriter fileWriter = null;
+        try {
+            fileWriter = new FileWriter("output.txt");
+            Semaphore semaphore = new Semaphore(maxConnections, fileWriter);
+            List<String> logs = Collections.synchronizedList(new ArrayList<>());
+            Router router = new Router(maxConnections, semaphore, logs);
+
+            List<Device> devices = new ArrayList<>();
+            for (int i = 1; i <= totalDevices; i++) {
+                System.out.println("Enter the name and type of device " + i + " (separated by a space):");
+                String[] input = scanner.nextLine().split(" ");
+                String name = input[0];
+                String type = input.length > 1 ? input[1] : "";
+                devices.add(new Device(name, type, router, logs));
+            }
+
+            // Wait for all threads to finish
+            for (Device device : devices) {
+                device.join();
+            }
+
+            for (String log : logs) {
+                fileWriter.write(log + "\n");
+            }
+        } catch (IOException | InterruptedException e) {
+            System.err.println("Error: " + e.getMessage());
+        } finally {
+            if (fileWriter != null) {
+                try {
+                    fileWriter.close();
+                } catch (IOException e) {
+                    System.err.println("Error closing FileWriter: " + e.getMessage());
+                }
+            }
         }
-
-        while (!devices.isEmpty()) {
-            Device device = devices.poll();
-            device.start();
-        }
-
-        scanner.close();
     }
 }
