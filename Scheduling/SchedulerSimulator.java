@@ -1,6 +1,8 @@
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
 
 public class SchedulerSimulator {
 
@@ -16,6 +18,8 @@ public class SchedulerSimulator {
         String currentExecutingProcess = "";
         int totalWaitingTime = 0;
         int totalTurnaroundTime = 0;
+        int agingThreshold = 3;
+        Set<String> completedProcesses = new HashSet<>();
 
         // Iterate through the processes
         while (!processList.isEmpty()) {
@@ -39,8 +43,17 @@ public class SchedulerSimulator {
                     currentTime = currentProcess.getArrivalTime();
                 }
 
+                // Aging mechanism -> Boost priority of waiting processes over time
+                if (currentTime % agingThreshold == 0) {
+                    for (Process waitingProcess : processList) {
+                        if (!waitingProcess.getName().equals(currentProcess.getName())) {
+                            waitingProcess.setBurstTime(waitingProcess.getBurstTime() + 1);
+                        }
+                    }
+                }
+
                 // Process the current process
-                int waitingTime = currentTime - currentProcess.getArrivalTime();  // Calculate waiting time
+                int waitingTime = currentTime - currentProcess.getArrivalTime();
                 int turnaroundTime = waitingTime + currentProcess.getBurstTime();
 
                 // Print the execution order only if the upcoming process differs from the current one
@@ -52,7 +65,12 @@ public class SchedulerSimulator {
 
                     // Update total waiting time and total turnaround time
                     totalWaitingTime += waitingTime;
-                    totalTurnaroundTime += turnaroundTime;
+
+                    // Add the turnaround time only if the process hasn't been completed before
+                    if (!completedProcesses.contains(currentProcess.getName())) {
+                        totalTurnaroundTime += turnaroundTime;
+                        completedProcesses.add(currentProcess.getName());
+                    }
                 }
 
                 // Subtract the time that has passed from the burst time
@@ -80,13 +98,71 @@ public class SchedulerSimulator {
         // Calculate and print average waiting time and average turnaround time
         int numberOfProcesses = processes.size();
         double averageWaitingTime = (double) totalWaitingTime / numberOfProcesses;
-        double averageTurnaroundTime = (double) totalTurnaroundTime / numberOfProcesses;
+        double averageTurnaroundTime = (double) totalTurnaroundTime / completedProcesses.size();
 
         System.out.println("\nAverage Waiting Time: " + averageWaitingTime);
         System.out.println("Average Turnaround Time: " + averageTurnaroundTime);
     }
 
-    public static void priorityScheduler(List<Process> processes){
+    public static void priorityScheduler(List<Process> processes) {
+        List<Process> processList = new ArrayList<>(processes);
+        processList.sort(Comparator.comparingInt(Process::getPriorityNumber)); // Sort processes by priority
 
+        int currentTime = 0;
+        int totalWaitingTime = 0;
+        int totalTurnaroundTime = 0;
+        int agingThreshold = 3;
+        List<String> executionOrder = new ArrayList<>();
+
+        // Iterate through the processes
+        while (!processList.isEmpty()) {
+            Process currentProcess = processList.get(0);
+
+            // Aging mechanism -> Boost priority of waiting processes over time
+            if (currentTime % agingThreshold == 0) {
+                for (Process waitingProcess : processList) {
+                    if (!waitingProcess.getName().equals(currentProcess.getName())) {
+                        waitingProcess.setPriorityNumber(waitingProcess.getPriorityNumber() + 1);
+                    }
+                }
+            }
+
+            // Process the current process
+            int waitingTime = currentTime;
+            int turnaroundTime = waitingTime + currentProcess.getBurstTime();
+
+            // Record the execution order
+            executionOrder.add(currentProcess.getName() +
+                    " -> Color: (" + currentProcess.getColor() +
+                    ") -> Waiting Time: (" + waitingTime +
+                    ") -> Turnaround Time: (" + turnaroundTime + ")");
+
+            // Update total waiting time and total turnaround time
+            totalWaitingTime += waitingTime;
+            totalTurnaroundTime += turnaroundTime;
+
+            // Update currentTime based on the burst time of the current process
+            currentTime += currentProcess.getBurstTime();
+
+            // Remove the processed process from the list
+            processList.remove(currentProcess);
+
+            // Set completion time for the completed process
+            currentProcess.setCompletionTime(getCompletionTime(currentProcess));
+        }
+
+        // Print the execution order
+        System.out.println("\nExecution Order:");
+        for (String order : executionOrder) {
+            System.out.println(order);
+        }
+
+        // Calculate and print average waiting time and average turnaround time
+        int numberOfProcesses = processes.size();
+        double averageWaitingTime = (double) totalWaitingTime / numberOfProcesses;
+        double averageTurnaroundTime = (double) totalTurnaroundTime / numberOfProcesses;
+
+        System.out.println("\nAverage Waiting Time: " + averageWaitingTime);
+        System.out.println("Average Turnaround Time: " + averageTurnaroundTime);
     }
 }
